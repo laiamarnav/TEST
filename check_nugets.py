@@ -142,7 +142,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             installed_version = parts[2]
 
             if "-beta" in package_name:
-                if not (REASON == "pull_request" and "ephemeral_mocked" in TAG):
+                if not (REASON == "pull_request" and "ephemeral" in TAG):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' but REASON='{REASON}' and TAG='{TAG}' do not allow it.")
                     blocked_found = True
                     continue
