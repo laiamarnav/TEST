@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+
+import subprocess
+import os
+import sys
+import glob
+import json
+import fnmatch
+import re
+from os.path import exists
+
+ANSI = {
+    "BOLD_RED": "\033[1;31m",
+    "BOLD_YELLOW": "\033[1;33m",
+    "RESET": "\033[0m"
+}
+
+LOG_FILE = "nugets.log"
+summary_lines = []
+
+NUGET_SOURCES = [
+    "https://vueling.pkgs.visualstudio.com/_packaging/vy-nuget/nuget/v3/index.json",
+    "https://api.nuget.org/v3/index.json"
+]
+
+def log(msg):
+    print(msg)
+
+def log_summary(msg):
+    summary_lines.append(msg)
+    if msg.startswith("ERROR"):
+        print(f"{ANSI['BOLD_RED']}{msg}{ANSI['RESET']}")
+    elif msg.startswith("WARNING"):
+        print(f"{ANSI['BOLD_YELLOW']}{msg}{ANSI['RESET']}")
+    else:
+        print(msg)
+
+
+def load_blocked_packages(path):
+    if not exists(path):
+        print(f"File not found: {path}")
+        sys.exit(1)
+
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    blocked = data.get("blocked_packages")
+    if not isinstance(blocked, list):
+        print(f"Invalid JSON format: missing or invalid 'blocked_packages' list in {path}")
+        sys.exit(1)
+
+    result = []
+    for entry in blocked:
+        if isinstance(entry, str):
+            result.append({
+                "name": entry.lower(),
+                "block_on": ["all"],
+                "min_version": None
+            })
+        elif isinstance(entry, dict) and "name" in entry:
+            result.append({
+                "name": entry["name"].lower(),
+                "block_on": entry.get("block_on", ["all"]),
+                "min_version": entry.get("min_version")
+            })
+        else:
+            print(f"Invalid blocked package entry: {entry}")
+            sys.exit(1)
+    return result
+
+def load_whitelist_data(path):
+    if not exists(path):
+        print(f"File not found: {path}")
+        sys.exit(1)
+
+    with open(path, encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON in {path}: {e}")
+            sys.exit(1)
+
+    project_whitelist = data.get("whitelist_projects", {})
+    if not isinstance(project_whitelist, dict):
+        print(f"Expected 'whitelist_projects' key with a dictionary value in {path}")
+        sys.exit(1)
+
+    nuget_whitelist = data.get("whitelist_nugets", [])
+    if not isinstance(nuget_whitelist, list):
+        print(f"Expected 'whitelist_nugets' to be a list in {path}")
+        sys.exit(1)
+
+    project_whitelist = {k.lower(): [p.lower() for p in v] for k, v in project_whitelist.items()}
+    nuget_whitelist = [pkg.lower() for pkg in nuget_whitelist]
+
+    return project_whitelist, nuget_whitelist
+
+def find_csproj_files():
+    return glob.glob("**/*.WebApi.csproj", recursive=True)
+
+def version_lt(v1, v2):
+    try:
+        return version.parse(v1) < version.parse(v2)
+    except:
+        return False
+
+def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelist_projects, whitelist_nugets):
+    cmd = [
+        "dotnet", "list", csproj_path, "package",
+        f"--{check_type}", "--include-transitive"
+    ]
+    for source in NUGET_SOURCES:
+        cmd.extend(["--source", source])
+
+    project_name = os.path.basename(csproj_path)
+    project_key = project_name.lower()
+    whitelist_for_project = whitelist_projects.get(project_key, [])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+        log(f"\n [{check_type.upper()} PACKAGES] ")
+        log("-" * 60)
+        log(f"\nChecking packages for {os.path.abspath(csproj_path)}")
+        log(result.stdout)
+
+        if result.returncode != 0:
+            log_summary(f"ERROR: Could not check packages for {csproj_path}. dotnet command failed.")
+            return False
+
+        output_lines = result.stdout.splitlines()
+        blocked_found = False
+
+        for line in output_lines:
+            if not line.strip().startswith("> "):
+                continue
+
+            parts = line.strip().split()
+            if len(parts) < 4:
+                continue
+
+            package_name = parts[1].lower()
+            installed_version = parts[2]
+
+            if "-beta" in package_name:
+                if not (REASON == "pull_request" and "ephemeral_mocked" in TAG):
+                    log_summary(f"ERROR: Found '-beta' package '{package_name}' but REASON='{REASON}' and TAG='{TAG}' do not allow it.")
+                    blocked_found = True
+                    continue
+
+            for blocked in blocked_packages:
+                if fnmatch.fnmatch(package_name, blocked["name"]):
+
+                    is_whitelisted = (
+                        any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
+                        any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
+                    )
+
+                    if is_whitelisted:
+                        log_summary(f"WARNING: Package '{package_name}' is blocked but allowed (bypassed via whitelist).")
+                        break
+
+                    if blocked["min_version"]:
+                        if version_lt(installed_version, blocked["min_version"]):
+                            log_summary(f"ERROR: Package '{package_name}' has version '{installed_version}' which is lower than the allowed '{blocked['min_version']}' in {csproj_path}.")
+                            blocked_found = True
+                            break
+
+                    if "all" in blocked["block_on"] or check_type in blocked["block_on"]:
+                        log_summary(f"ERROR: Found blocked package '{package_name}' in {csproj_path}.")
+                        blocked_found = True
+                        break
+
+        return not blocked_found
+    except Exception as e:
+        log_summary(f"Exception running dotnet command: {e}")
+        return False
+
+def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets):
+    csproj_files = find_csproj_files()
+    if not csproj_files:
+        log("No WebApi.csproj files found. Exiting...")
+        sys.exit(0)
+
+    error_count = 0
+    for csproj in csproj_files:
+        if not run_dotnet_package_check(csproj, check_type, blocked_packages, whitelist_projects, whitelist_nugets):
+            error_count += 1
+
+    if error_count > 0:
+        log_summary(f"Found issues during {check_type} package check.")
+        return False
+
+    return True
+
+def main():
+    working_dir = sys.argv[1]
+    blocked_packages_json = sys.argv[2]
+    whitelist_projects_json = sys.argv[3]
+    REASON = "pull_request"
+    TAG = "ephemeral_mocked"
+
+    try:
+        os.chdir(working_dir)
+        log(f"Changed to directory: {working_dir}")
+    except FileNotFoundError:
+        print(f"Directory not found: {working_dir}")
+        sys.exit(1)
+
+    blocked_packages = load_blocked_packages(blocked_packages_json)
+    whitelist_projects, whitelist_nugets = load_whitelist_data(whitelist_projects_json)
+
+    open(LOG_FILE, "w", encoding="utf-8").close()
+    log("Logging output to: output2.log")
+
+    vulnerable_ok = check_packages("vulnerable", blocked_packages, whitelist_projects, whitelist_nugets)
+    outdated_ok = check_packages("outdated", blocked_packages, whitelist_projects, whitelist_nugets)
+    deprecated_ok = check_packages("deprecated", blocked_packages, whitelist_projects, whitelist_nugets)
+
+    log("\nSUMMARY REPORT")
+    log("-" * 60)
+
+    if summary_lines:
+        for line in summary_lines:
+            log(line)
+    else:
+        log("No blocked packages or issues found.")
+
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        f.write("SUMMARY REPORT\n")
+        f.write("-" * 60 + "\n")
+        if summary_lines:
+            f.write("\n".join(summary_lines) + "\n")
+        else:
+            f.write("No blocked packages or issues found.\n")
+
+    errors = [line for line in summary_lines if line.startswith("ERROR")]
+    warnings = [line for line in summary_lines if line.startswith("WARNING")]
+
+    if errors:
+        log("Errors found in package checks. Failing pipeline.")
+        sys.exit(1)
+    elif warnings:
+        log("Warnings found in package checks. Marking pipeline as warning.")
+        print("##vso[task.complete result=SucceededWithIssues;]Warnings found in package checks.")
+        sys.exit(0)
+    else:
+        log("All checks passed without issues.")
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
