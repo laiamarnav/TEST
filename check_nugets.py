@@ -142,8 +142,8 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             installed_version = parts[2]
 
             if "-beta" in package_name:
-                if not (REASON == "pull_request" and "ephemeral" in TAG):
-                    log_summary(f"ERROR: Found '-beta' package '{package_name}' but REASON='{REASON}' and TAG='{TAG}' do not allow it.")
+                if not (run_reason == "pull_request" and "ephemeral" in tag_pull_request):
+                    log_summary(f"ERROR: Found '-beta' package '{package_name}' but run_reason='{run_reason}' and tag_pull_request='{tag_pull_request}' do not allow it.")
                     blocked_found = True
                     continue
 
@@ -196,8 +196,8 @@ def main():
     working_dir = sys.argv[1]
     blocked_packages_json = sys.argv[2]
     whitelist_projects_json = sys.argv[3]
-    REASON = "pull_request"
-    TAG = "ephemeral_mocked"
+    run_reason = sys.argv[4]
+    tag_pull_request = sys.argv[5]
 
     try:
         os.chdir(working_dir)
