@@ -96,7 +96,7 @@ def load_whitelist_data(path):
     return project_whitelist, nuget_whitelist
 
 def find_csproj_files():
-    return glob.glob("**/*.WebApi.csproj", recursive=True)
+    return glob.glob("**/*.csproj", recursive=True)
 
 def version_lt(v1, v2):
     try:
@@ -178,7 +178,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
 def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets):
     csproj_files = find_csproj_files()
     if not csproj_files:
-        log("No WebApi.csproj files found. Exiting...")
+        log("No .csproj files found. Exiting...")
         sys.exit(0)
 
     error_count = 0
