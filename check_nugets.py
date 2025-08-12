@@ -89,7 +89,6 @@ def load_whitelist_data(path):
         print(f"Expected 'whitelist_nugets' to be a list in {path}")
         sys.exit(1)
 
-    # Normalizamos a minúsculas
     project_whitelist = {k.lower(): [p.lower() for p in v] for k, v in project_whitelist.items()}
     nuget_whitelist = [pkg.lower() for pkg in nuget_whitelist]
 
@@ -121,15 +120,15 @@ def version_lt(v1, v2):
         return False
 
 def resolve_whitelist_for_project(csproj_path, whitelist_projects):
-    project_name = os.path.basename(csproj_path)  
+    project_name = os.path.basename(csproj_path)
     project_key = project_name.lower()
-    project_stem = os.path.splitext(project_key)[0]     
+    project_stem = os.path.splitext(project_key)[0]
 
     merged = list(whitelist_projects.get(project_key, []))
 
     for k, allowed in whitelist_projects.items():
         if k == project_key:
-            continue  # ya agregado
+            continue
         if fnmatch.fnmatch(project_key, k) or fnmatch.fnmatch(project_stem, k):
             merged.extend(allowed)
 
@@ -144,6 +143,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         cmd.extend(["--source", source])
 
     whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
+    log(f"INFO: Effective whitelist for project '{os.path.basename(csproj_path)}': {whitelist_for_project}")
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
@@ -171,6 +171,13 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             installed_version = parts[2]
 
             if "-beta" in package_name:
+                is_whitelisted_beta = (
+                    any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
+                    any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
+                )
+                if is_whitelisted_beta:
+                    log(f"INFO: Package '{package_name}' (-beta) allowed by whitelist.")
+                    continue
                 if not (run_reason == "pull_request" and "ephemeral" in tag_pull_request):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' but run_reason='{run_reason}' and tag_pull_request='{tag_pull_request}' do not allow it.")
                     blocked_found = True
@@ -185,8 +192,8 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     )
 
                     if is_whitelisted:
-                        log_summary(f"WARNING: Package '{package_name}' is blocked but allowed (bypassed via whitelist).")
-                        break
+                        log(f"INFO: Package '{package_name}' allowed by whitelist.")
+                        break 
 
                     if blocked["min_version"]:
                         if version_lt(installed_version, blocked["min_version"]):
