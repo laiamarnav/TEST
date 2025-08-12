@@ -8,6 +8,7 @@ import json
 import fnmatch
 import re
 from os.path import exists
+from packaging import version  # <-- necesario para version.parse
 
 ANSI = {
     "BOLD_RED": "\033[1;31m",
@@ -34,7 +35,6 @@ def log_summary(msg):
         print(f"{ANSI['BOLD_YELLOW']}{msg}{ANSI['RESET']}")
     else:
         print(msg)
-
 
 def load_blocked_packages(path):
     if not exists(path):
@@ -90,6 +90,7 @@ def load_whitelist_data(path):
         print(f"Expected 'whitelist_nugets' to be a list in {path}")
         sys.exit(1)
 
+    # Normalizamos a minúsculas
     project_whitelist = {k.lower(): [p.lower() for p in v] for k, v in project_whitelist.items()}
     nuget_whitelist = [pkg.lower() for pkg in nuget_whitelist]
 
@@ -101,10 +102,36 @@ def find_csproj_files():
 def version_lt(v1, v2):
     try:
         return version.parse(v1) < version.parse(v2)
-    except:
+    except Exception:
         return False
 
-def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelist_projects, whitelist_nugets):
+def resolve_whitelist_for_project(csproj_path, whitelist_projects):
+    """
+    Devuelve la lista de patrones de paquetes permitidos para un proyecto dado,
+    soportando patrones en el nombre del proyecto (con y sin .csproj).
+    """
+    project_name = os.path.basename(csproj_path)         # p.ej. "VY.AI.EliGPT.WebApi.csproj"
+    project_key = project_name.lower()
+    project_stem = os.path.splitext(project_key)[0]      # "vy.ai.eligpt.webapi"
+
+    # 1) Coincidencia exacta (clave == nombre .csproj)
+    exact = whitelist_projects.get(project_key, [])
+
+    # 2) Reunimos todas las claves que hagan match por patrón contra key o stem
+    pattern_keys = [
+        k for k in whitelist_projects.keys()
+        if fnmatch.fnmatch(project_key, k) or fnmatch.fnmatch(project_stem, k)
+    ]
+
+    merged = list(exact)  # copia
+    for k in pattern_keys:
+        if k == project_key:
+            continue  # ya agregado en exact
+        merged.extend(whitelist_projects[k])
+
+    return merged
+
+def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request):
     cmd = [
         "dotnet", "list", csproj_path, "package",
         f"--{check_type}", "--include-transitive"
@@ -112,9 +139,8 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
     for source in NUGET_SOURCES:
         cmd.extend(["--source", source])
 
-    project_name = os.path.basename(csproj_path)
-    project_key = project_name.lower()
-    whitelist_for_project = whitelist_projects.get(project_key, [])
+    # Obtener whitelist final (por proyecto) con patrones
+    whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
@@ -141,6 +167,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             package_name = parts[1].lower()
             installed_version = parts[2]
 
+            # Control de -beta
             if "-beta" in package_name:
                 if not (run_reason == "pull_request" and "ephemeral" in tag_pull_request):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' but run_reason='{run_reason}' and tag_pull_request='{tag_pull_request}' do not allow it.")
@@ -150,6 +177,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             for blocked in blocked_packages:
                 if fnmatch.fnmatch(package_name, blocked["name"]):
 
+                    # Whitelist por proyecto (patrones) o global de nugets (patrones)
                     is_whitelisted = (
                         any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
                         any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
@@ -175,7 +203,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         log_summary(f"Exception running dotnet command: {e}")
         return False
 
-def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets):
+def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request):
     csproj_files = find_csproj_files()
     if not csproj_files:
         log("No .csproj files found. Exiting...")
@@ -183,7 +211,16 @@ def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_n
 
     error_count = 0
     for csproj in csproj_files:
-        if not run_dotnet_package_check(csproj, check_type, blocked_packages, whitelist_projects, whitelist_nugets):
+        ok = run_dotnet_package_check(
+            csproj,
+            check_type,
+            blocked_packages,
+            whitelist_projects,
+            whitelist_nugets,
+            run_reason,
+            tag_pull_request
+        )
+        if not ok:
             error_count += 1
 
     if error_count > 0:
@@ -193,6 +230,10 @@ def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_n
     return True
 
 def main():
+    if len(sys.argv) < 6:
+        print("Usage: script.py <working_dir> <blocked_packages_json> <whitelist_projects_json> <run_reason> <tag_pull_request>")
+        sys.exit(1)
+
     working_dir = sys.argv[1]
     blocked_packages_json = sys.argv[2]
     whitelist_projects_json = sys.argv[3]
@@ -210,11 +251,11 @@ def main():
     whitelist_projects, whitelist_nugets = load_whitelist_data(whitelist_projects_json)
 
     open(LOG_FILE, "w", encoding="utf-8").close()
-    log("Logging output to: output2.log")
+    log(f"Logging output to: {LOG_FILE}")
 
-    vulnerable_ok = check_packages("vulnerable", blocked_packages, whitelist_projects, whitelist_nugets)
-    outdated_ok = check_packages("outdated", blocked_packages, whitelist_projects, whitelist_nugets)
-    deprecated_ok = check_packages("deprecated", blocked_packages, whitelist_projects, whitelist_nugets)
+    vulnerable_ok = check_packages("vulnerable", blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request)
+    outdated_ok   = check_packages("outdated",   blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request)
+    deprecated_ok = check_packages("deprecated", blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request)
 
     log("\nSUMMARY REPORT")
     log("-" * 60)
