@@ -8,7 +8,6 @@ import json
 import fnmatch
 import re
 from os.path import exists
-from packaging import version 
 
 ANSI = {
     "BOLD_RED": "\033[1;31m",
@@ -99,33 +98,40 @@ def load_whitelist_data(path):
 def find_csproj_files():
     return glob.glob("**/*.csproj", recursive=True)
 
+def _version_nums(v):
+    main = v.split('-', 1)[0] if v else ""
+    parts = re.split(r"[._]", main) if main else []
+    nums = []
+    for p in parts:
+        try:
+            nums.append(int(p))
+        except ValueError:
+            nums.append(0)
+    return nums
+
 def version_lt(v1, v2):
     try:
-        return version.parse(v1) < version.parse(v2)
+        a = _version_nums(v1)
+        b = _version_nums(v2)
+        L = max(len(a), len(b))
+        if len(a) < L: a += [0] * (L - len(a))
+        if len(b) < L: b += [0] * (L - len(b))
+        return a < b
     except Exception:
         return False
 
 def resolve_whitelist_for_project(csproj_path, whitelist_projects):
-    """
-    Devuelve la lista de patrones de paquetes permitidos para un proyecto dado,
-    soportando patrones en el nombre del proyecto (con y sin .csproj).
-    """
-    project_name = os.path.basename(csproj_path)        
+    project_name = os.path.basename(csproj_path)  
     project_key = project_name.lower()
-    project_stem = os.path.splitext(project_key)[0]      
+    project_stem = os.path.splitext(project_key)[0]     
 
-    exact = whitelist_projects.get(project_key, [])
+    merged = list(whitelist_projects.get(project_key, []))
 
-    pattern_keys = [
-        k for k in whitelist_projects.keys()
-        if fnmatch.fnmatch(project_key, k) or fnmatch.fnmatch(project_stem, k)
-    ]
-
-    merged = list(exact)  # copia
-    for k in pattern_keys:
+    for k, allowed in whitelist_projects.items():
         if k == project_key:
-            continue  # ya agregado en exact
-        merged.extend(whitelist_projects[k])
+            continue  # ya agregado
+        if fnmatch.fnmatch(project_key, k) or fnmatch.fnmatch(project_stem, k):
+            merged.extend(allowed)
 
     return merged
 
