@@ -89,8 +89,11 @@ def load_whitelist_data(path):
         print(f"Expected 'whitelist_nugets' to be a list in {path}")
         sys.exit(1)
 
-    project_whitelist = {k.lower(): [p.lower() for p in v] for k, v in project_whitelist.items()}
-    nuget_whitelist = [pkg.lower() for pkg in nuget_whitelist]
+    def _norm_list(lst):
+        return [str(x).strip().lower() for x in lst]
+
+    project_whitelist = {str(k).strip().lower(): _norm_list(v) for k, v in project_whitelist.items()}
+    nuget_whitelist = _norm_list(nuget_whitelist)
 
     return project_whitelist, nuget_whitelist
 
@@ -145,6 +148,8 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
     whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
     log(f"INFO: Effective whitelist for project '{os.path.basename(csproj_path)}': {whitelist_for_project}")
 
+    allow_all = ("*" in whitelist_for_project) or ("*" in whitelist_nugets)
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
         log(f"\n [{check_type.upper()} PACKAGES] ")
@@ -170,6 +175,10 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             package_name = parts[1].lower()
             installed_version = parts[2]
 
+            if allow_all:
+                log(f"INFO: Package '{package_name}' allowed by '*' whitelist (project/global).")
+                continue
+
             if "-beta" in package_name:
                 is_whitelisted_beta = (
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
@@ -193,7 +202,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
 
                     if is_whitelisted:
                         log(f"INFO: Package '{package_name}' allowed by whitelist.")
-                        break 
+                        break  +
 
                     if blocked["min_version"]:
                         if version_lt(installed_version, blocked["min_version"]):
