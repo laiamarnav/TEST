@@ -202,7 +202,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
 
                     if is_whitelisted:
                         log(f"INFO: Package '{package_name}' allowed by whitelist.")
-                        break  +
+                        break  
 
                     if blocked["min_version"]:
                         if version_lt(installed_version, blocked["min_version"]):
