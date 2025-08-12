@@ -8,7 +8,7 @@ import json
 import fnmatch
 import re
 from os.path import exists
-from packaging import version  # <-- necesario para version.parse
+from packaging import version 
 
 ANSI = {
     "BOLD_RED": "\033[1;31m",
@@ -110,14 +110,12 @@ def resolve_whitelist_for_project(csproj_path, whitelist_projects):
     Devuelve la lista de patrones de paquetes permitidos para un proyecto dado,
     soportando patrones en el nombre del proyecto (con y sin .csproj).
     """
-    project_name = os.path.basename(csproj_path)         # p.ej. "VY.AI.EliGPT.WebApi.csproj"
+    project_name = os.path.basename(csproj_path)        
     project_key = project_name.lower()
-    project_stem = os.path.splitext(project_key)[0]      # "vy.ai.eligpt.webapi"
+    project_stem = os.path.splitext(project_key)[0]      
 
-    # 1) Coincidencia exacta (clave == nombre .csproj)
     exact = whitelist_projects.get(project_key, [])
 
-    # 2) Reunimos todas las claves que hagan match por patrón contra key o stem
     pattern_keys = [
         k for k in whitelist_projects.keys()
         if fnmatch.fnmatch(project_key, k) or fnmatch.fnmatch(project_stem, k)
@@ -139,7 +137,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
     for source in NUGET_SOURCES:
         cmd.extend(["--source", source])
 
-    # Obtener whitelist final (por proyecto) con patrones
     whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
 
     try:
@@ -167,7 +164,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             package_name = parts[1].lower()
             installed_version = parts[2]
 
-            # Control de -beta
             if "-beta" in package_name:
                 if not (run_reason == "pull_request" and "ephemeral" in tag_pull_request):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' but run_reason='{run_reason}' and tag_pull_request='{tag_pull_request}' do not allow it.")
@@ -177,7 +173,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             for blocked in blocked_packages:
                 if fnmatch.fnmatch(package_name, blocked["name"]):
 
-                    # Whitelist por proyecto (patrones) o global de nugets (patrones)
                     is_whitelisted = (
                         any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
                         any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
