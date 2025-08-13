@@ -146,7 +146,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         cmd.extend(["--source", source])
 
     whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
-    log(f"WARNING: Effective whitelist for project '{os.path.basename(csproj_path)}': {whitelist_for_project}")
     print("##vso[task.complete result=SucceededWithIssues;]Warnings found in package checks.")
 
     allow_all = ("*" in whitelist_for_project) or ("*" in whitelist_nugets)
