@@ -180,6 +180,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                 continue
 
             if "-beta" in package_name:
+                log(f"BETA.")
                 is_whitelisted_beta = (
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
