@@ -146,7 +146,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         cmd.extend(["--source", source])
 
     whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
-    log(f"INFO: Effective whitelist for project '{os.path.basename(csproj_path)}': {whitelist_for_project}")
+    log(f"WARNING: Effective whitelist for project '{os.path.basename(csproj_path)}': {whitelist_for_project}")
 
     allow_all = ("*" in whitelist_for_project) or ("*" in whitelist_nugets)
 
@@ -176,7 +176,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             installed_version = parts[2]
 
             if allow_all:
-                log(f"INFO: Package '{package_name}' allowed by '*' whitelist (project/global).")
+                log(f"WARNING: Package '{package_name}' allowed by '*' whitelist (project/global).")
                 continue
 
             if "-beta" in package_name:
@@ -185,7 +185,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
                 )
                 if is_whitelisted_beta:
-                    log(f"INFO: Package '{package_name}' (-beta) allowed by whitelist.")
+                    log(f"WARNING: Package '{package_name}' (-beta) allowed by whitelist.")
                     continue
                 if not (run_reason == "pull_request" and "ephemeral" in tag_pull_request):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' but run_reason='{run_reason}' and tag_pull_request='{tag_pull_request}' do not allow it.")
@@ -201,7 +201,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     )
 
                     if is_whitelisted:
-                        log(f"INFO: Package '{package_name}' allowed by whitelist.")
+                        log(f"WARNING: Package '{package_name}' allowed by whitelist.")
                         break  
 
                     if blocked["min_version"]:
