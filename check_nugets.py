@@ -147,6 +147,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
 
     whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
     log(f"WARNING: Effective whitelist for project '{os.path.basename(csproj_path)}': {whitelist_for_project}")
+    print("##vso[task.complete result=SucceededWithIssues;]Warnings found in package checks.")
 
     allow_all = ("*" in whitelist_for_project) or ("*" in whitelist_nugets)
 
@@ -176,7 +177,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             installed_version = parts[2]
 
             if allow_all:
-                log(f"WARNING: Package '{package_name}' allowed by '*' whitelist (project/global).")
+                log_summary(f"WARNING: Package '{package_name}' allowed by '*' whitelist (project/global).")
                 continue
 
             if "-beta" in package_name:
@@ -185,7 +186,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
                 )
                 if is_whitelisted_beta:
-                    log(f"WARNING: Package '{package_name}' (-beta) allowed by whitelist.")
+                    log_summary(f"WARNING: Package '{package_name}' (-beta) allowed by whitelist.")
                     continue
                 if not (run_reason == "pull_request" and "ephemeral" in tag_pull_request):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' but run_reason='{run_reason}' and tag_pull_request='{tag_pull_request}' do not allow it.")
@@ -201,7 +202,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     )
 
                     if is_whitelisted:
-                        log(f"WARNING: Package '{package_name}' allowed by whitelist.")
+                        log_summary(f"WARNING: Package '{package_name}' allowed by whitelist.")
                         break  
 
                     if blocked["min_version"]:
@@ -223,7 +224,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
 def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request):
     csproj_files = find_csproj_files()
     if not csproj_files:
-        log("No .csproj files found. Exiting...")
+        log_summary("No .csproj files found. Exiting...")
         sys.exit(0)
 
     error_count = 0
