@@ -1,13 +1,4 @@
 {
   "blocked_packages": [
-    {
-      "name": "*",
-      "block_on": ["deprecated"]
-    },
-    {
-      "name": "Newtonsoft.Json*",
-      "block_on": ["all"],
-      "min_version": "1.0.3"
-    }
   ]
 }
