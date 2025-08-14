@@ -173,7 +173,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             package_name = parts[1].lower()
             installed_version = parts[2]
 
-            # Si hay '*' en whitelist, marcamos como INFO y seguimos
             if allow_all:
                 log_summary(f"INFO: Package '{package_name}' allowed by '*' whitelist (project/global).")
                 continue
