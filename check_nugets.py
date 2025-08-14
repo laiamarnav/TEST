@@ -27,13 +27,13 @@ def log(msg):
     print(msg)
 
 def log_summary(msg):
-        summary_lines.append(msg)
-        if msg.startswith("ERROR"):
-            print(f"{ANSI['BOLD_RED']}{msg}{ANSI['RESET']}")
-        elif msg.startswith("WARNING"):
-            print(f"{ANSI['BOLD_YELLOW']}{msg}{ANSI['RESET']}")
-        else:
-            print(msg)
+    summary_lines.append(msg)
+    if msg.startswith("ERROR"):
+        print(f"{ANSI['BOLD_RED']}{msg}{ANSI['RESET']}")
+    elif msg.startswith("WARNING"):
+        print(f"{ANSI['BOLD_YELLOW']}{msg}{ANSI['RESET']}")
+    else:
+        print(msg)
 
 def load_blocked_packages(path):
     if not exists(path):
@@ -173,18 +173,18 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             package_name = parts[1].lower()
             installed_version = parts[2]
 
+            # Si hay '*' en whitelist, marcamos como INFO y seguimos
             if allow_all:
-                log_summary(f"WARNING: Package '{package_name}' allowed by '*' whitelist (project/global).")
+                log_summary(f"INFO: Package '{package_name}' allowed by '*' whitelist (project/global).")
                 continue
 
             if "-beta" in installed_version:
-                log_summary(f"WARNING: Package '{package_name}' is beta")
                 is_whitelisted_beta = (
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
                 )
-                if is_whitelisted_beta:
-                    log_summary(f"WARNING: Package '{package_name}' (-beta) allowed by whitelist.")
+                if is_whitelisted_beta or allow_all:
+                    log_summary(f"INFO: Package '{package_name}' is beta but allowed by whitelist.")
                     continue
                 if not any(x in tag_pull_request for x in ("ephemeral", "mocked", "ephemeral_mocked")):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' do not allow it.")
@@ -199,8 +199,8 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                         any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
                     )
 
-                    if is_whitelisted:
-                        log_summary(f"WARNING: Package '{package_name}' allowed by whitelist.")
+                    if is_whitelisted or allow_all:
+                        log_summary(f"INFO: Package '{package_name}' allowed by whitelist.")
                         break
 
                     if blocked["min_version"]:
