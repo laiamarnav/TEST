@@ -173,48 +173,67 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             package_name = parts[1].lower()
             installed_version = parts[2]
 
-            if allow_all:
-                log_summary(f"INFO: Package '{package_name}' allowed by '*' whitelist (project/global).")
-                continue
-
+            # 1) Casos beta: solo reportar si son realmente bloqueantes.
             if "-beta" in installed_version:
                 is_whitelisted_beta = (
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
-                    any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
+                    any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets) or
+                    allow_all
                 )
-                if is_whitelisted_beta or allow_all:
-                    log_summary(f"INFO: Package '{package_name}' is beta but allowed by whitelist.")
+                if is_whitelisted_beta:
+                    # Permitido -> sin ruido (no WARNING/ERROR)
                     continue
+                # No whitelisted y no PR "ephemeral/mocked" -> ERROR
                 if not any(x in tag_pull_request for x in ("ephemeral", "mocked", "ephemeral_mocked")):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' do not allow it.")
                     blocked_found = True
                     continue
+                # Si es PR efímero, permitir sin ruido
+                continue
 
+            # 2) Reglas bloqueantes: solo si hay match con blocked_packages
+            matched_block_rule = None
             for blocked in blocked_packages:
                 if fnmatch.fnmatch(package_name, blocked["name"]):
+                    matched_block_rule = blocked
+                    break
 
+            if matched_block_rule:
+                # Si hay min_version y está por debajo -> ERROR (a menos que whitelist lo permita)
+                if matched_block_rule.get("min_version"):
+                    if version_lt(installed_version, matched_block_rule["min_version"]):
+                        # ¿Whitelist?
+                        is_whitelisted = (
+                            any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
+                            any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets) or
+                            allow_all
+                        )
+                        if is_whitelisted:
+                            log_summary(f"INFO: Package '{package_name}' below min_version but allowed by whitelist.")
+                            continue
+                        log_summary(
+                            f"ERROR: Package '{package_name}' has version '{installed_version}' "
+                            f"which is lower than the allowed '{matched_block_rule['min_version']}' in {csproj_path}."
+                        )
+                        blocked_found = True
+                        continue
+
+                # Si la regla indica bloquear en este tipo de check (o en 'all')
+                if "all" in matched_block_rule.get("block_on", []) or check_type in matched_block_rule.get("block_on", []):
                     is_whitelisted = (
                         any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
-                        any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
+                        any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets) or
+                        allow_all
                     )
+                    if is_whitelisted:
+                        log_summary(f"INFO: Package '{package_name}' would be blocked but is allowed by whitelist.")
+                        continue
+                    log_summary(f"ERROR: Found blocked package '{package_name}' in {csproj_path}.")
+                    blocked_found = True
+                    continue
 
-                    if is_whitelisted or allow_all:
-                        log_summary(f"INFO: Package '{package_name}' allowed by whitelist.")
-                        break
-
-                    if blocked["min_version"]:
-                        if version_lt(installed_version, blocked["min_version"]):
-                            log_summary(
-                                f"ERROR: Package '{package_name}' has version '{installed_version}' "
-                                f"which is lower than the allowed '{blocked['min_version']}' in {csproj_path}."
-                            )
-                            blocked_found = True
-                            break
-
-                    if "all" in blocked["block_on"] or check_type in blocked["block_on"]:
-                        log_summary(f"ERROR: Found blocked package '{package_name}' in {csproj_path}.")
-                        blocked_found = True
-                        break
+            # 3) Si no es beta bloqueante y no coincide con regla bloqueante -> sin mensajes.
+            continue
 
         return not blocked_found
     except Exception as e:
