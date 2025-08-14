@@ -27,13 +27,13 @@ def log(msg):
     print(msg)
 
 def log_summary(msg):
-        summary_lines.append(msg)
-        if msg.startswith("ERROR"):
-            print(f"{ANSI['BOLD_RED']}{msg}{ANSI['RESET']}")
-        elif msg.startswith("WARNING"):
-            print(f"{ANSI['BOLD_YELLOW']}{msg}{ANSI['RESET']}")
-        else:
-            print(msg)
+    summary_lines.append(msg)
+    if msg.startswith("ERROR"):
+        print(f"{ANSI['BOLD_RED']}{msg}{ANSI['RESET']}")
+    elif msg.startswith("WARNING"):
+        print(f"{ANSI['BOLD_YELLOW']}{msg}{ANSI['RESET']}")
+    else:
+        print(msg)
 
 def load_blocked_packages(path):
     if not exists(path):
@@ -146,6 +146,8 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         cmd.extend(["--source", source])
 
     whitelist_for_project = resolve_whitelist_for_project(csproj_path, whitelist_projects)
+    log(f"INFO: Effective whitelist for project '{os.path.basename(csproj_path)}': {whitelist_for_project}")
+
     allow_all = ("*" in whitelist_for_project) or ("*" in whitelist_nugets)
 
     try:
@@ -174,20 +176,19 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             installed_version = parts[2]
 
             if allow_all:
-                log_summary(f"WARNING: Package '{package_name}' allowed by '*' whitelist (project/global).")
+                log(f"INFO: Package '{package_name}' allowed by '*' whitelist (project/global).")
                 continue
 
-            if "-beta" in installed_version:
-                log_summary(f"WARNING: Package '{package_name}' is beta")
+            if "-beta" in package_name:
                 is_whitelisted_beta = (
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
                     any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets)
                 )
                 if is_whitelisted_beta:
-                    log_summary(f"WARNING: Package '{package_name}' (-beta) allowed by whitelist.")
+                    log(f"INFO: Package '{package_name}' (-beta) allowed by whitelist.")
                     continue
-                if not any(x in tag_pull_request for x in ("ephemeral", "mocked", "ephemeral_mocked")):
-                    log_summary(f"ERROR: Found '-beta' package '{package_name}' do not allow it.")
+                if not (run_reason == "pull_request" and "ephemeral" in tag_pull_request):
+                    log_summary(f"ERROR: Found '-beta' package '{package_name}' but run_reason='{run_reason}' and tag_pull_request='{tag_pull_request}' do not allow it.")
                     blocked_found = True
                     continue
 
@@ -200,15 +201,12 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     )
 
                     if is_whitelisted:
-                        log_summary(f"WARNING: Package '{package_name}' allowed by whitelist.")
-                        break
+                        log(f"INFO: Package '{package_name}' allowed by whitelist.")
+                        break  
 
                     if blocked["min_version"]:
                         if version_lt(installed_version, blocked["min_version"]):
-                            log_summary(
-                                f"ERROR: Package '{package_name}' has version '{installed_version}' "
-                                f"which is lower than the allowed '{blocked['min_version']}' in {csproj_path}."
-                            )
+                            log_summary(f"ERROR: Package '{package_name}' has version '{installed_version}' which is lower than the allowed '{blocked['min_version']}' in {csproj_path}.")
                             blocked_found = True
                             break
 
@@ -225,7 +223,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
 def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request):
     csproj_files = find_csproj_files()
     if not csproj_files:
-        log_summary("No .csproj files found. Exiting...")
+        log("No .csproj files found. Exiting...")
         sys.exit(0)
 
     error_count = 0
