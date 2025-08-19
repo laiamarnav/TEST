@@ -137,7 +137,7 @@ def resolve_whitelist_for_project(csproj_path, whitelist_projects):
 
     return merged
 
-def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request):
+def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelist_projects, whitelist_nugets, tag_pull_request):
     cmd = [
         "dotnet", "list", csproj_path, "package",
         f"--{check_type}", "--include-transitive"
@@ -233,7 +233,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         log_summary(f"Exception running dotnet command: {e}")
         return False
 
-def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request):
+def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_nugets, tag_pull_request):
     csproj_files = find_csproj_files()
     if not csproj_files:
         log_summary("No .csproj files found. Exiting...")
@@ -247,7 +247,7 @@ def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_n
             blocked_packages,
             whitelist_projects,
             whitelist_nugets,
-            run_reason,
+            ,
             tag_pull_request
         )
         if not ok:
@@ -261,14 +261,13 @@ def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_n
 
 def main():
     if len(sys.argv) < 6:
-        print("Usage: script.py <working_dir> <blocked_packages_json> <whitelist_projects_json> <run_reason> <tag_pull_request>")
+        print("Usage: script.py <working_dir> <blocked_packages_json> <whitelist_projects_json> <tag_pull_request>")
         sys.exit(1)
 
     working_dir = sys.argv[1]
     blocked_packages_json = sys.argv[2]
     whitelist_projects_json = sys.argv[3]
-    run_reason = sys.argv[4]
-    tag_pull_request = sys.argv[5]
+    tag_pull_request = sys.argv[4]
 
     try:
         os.chdir(working_dir)
@@ -283,9 +282,9 @@ def main():
     open(LOG_FILE, "w", encoding="utf-8").close()
     log(f"Logging output to: {LOG_FILE}")
 
-    vulnerable_ok = check_packages("vulnerable", blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request)
-    outdated_ok   = check_packages("outdated",   blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request)
-    deprecated_ok = check_packages("deprecated", blocked_packages, whitelist_projects, whitelist_nugets, run_reason, tag_pull_request)
+    vulnerable_ok = check_packages("vulnerable", blocked_packages, whitelist_projects, whitelist_nugets, tag_pull_request)
+    outdated_ok   = check_packages("outdated",   blocked_packages, whitelist_projects, whitelist_nugets, tag_pull_request)
+    deprecated_ok = check_packages("deprecated", blocked_packages, whitelist_projects, whitelist_nugets, tag_pull_request)
 
     log("\nSUMMARY REPORT")
     log("-" * 60)
