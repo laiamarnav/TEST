@@ -1,8 +1,5 @@
 {
   "blocked_packages": [
-    {
-      "name": "*",
-      "block_on": ["deprecated"]
-    }
+ 
   ]
 }
