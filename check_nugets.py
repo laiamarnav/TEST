@@ -259,7 +259,7 @@ def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_n
     return True
 
 def main():
-    if len(sys.argv) < 6:
+    if len(sys.argv) < 5:
         print("Usage: script.py <working_dir> <blocked_packages_json> <whitelist_projects_json> <tag_pull_request>")
         sys.exit(1)
 
