@@ -156,7 +156,12 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         log(result.stdout)
 
         if result.returncode != 0:
-            log_summary(f"ERROR: Could not check packages for {csproj_path}. dotnet command failed.")
+            log_summary(
+                f"ERROR: Could not check packages for {csproj_path}. "
+                f"dotnet command failed with code {result.returncode}."
+            )
+            if result.stderr:
+                log(f"[dotnet stderr]\n{result.stderr}")
             return False
 
         output_lines = result.stdout.splitlines()
