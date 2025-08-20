@@ -7,7 +7,7 @@ import glob
 import json
 import fnmatch
 import re
-from os.path import exists
+from os.path import exists, dirname, join
 
 ANSI = {
     "BOLD_RED": "\033[1;31m",
@@ -117,7 +117,7 @@ def version_lt(v1, v2):
         b = _version_nums(v2)
         L = max(len(a), len(b))
         if len(a) < L: a += [0] * (L - len(a))
-        if len(b) < L: b += [0] * (L - len(a))
+        if len(b) < L: b += [0] * (L - len(b))
         return a < b
     except Exception:
         return False
@@ -136,6 +136,69 @@ def resolve_whitelist_for_project(csproj_path, whitelist_projects):
             merged.extend(allowed)
 
     return merged
+
+def is_classic_web_app(csproj_path):
+    try:
+        with open(csproj_path, encoding="utf-8", errors="ignore") as f:
+            text = f.read().lower()
+        return "microsoft.webapplication.targets" in text
+    except Exception:
+        return False
+
+def uses_packages_config(csproj_path):
+    if exists(join(dirname(csproj_path), "packages.config")):
+        return True
+    try:
+        with open(csproj_path, encoding="utf-8", errors="ignore") as f:
+            txt = f.read().lower()
+        return ("<packagereference" not in txt) and ("\\packages\\" in txt or "/packages/" in txt or "<hintpath>" in txt)
+    except Exception:
+        return False
+
+def web_targets_present():
+    if os.name != "nt":
+        return False
+    candidates = [
+        os.environ.get("VSToolsPath") and os.path.join(os.environ.get("VSToolsPath"), "WebApplications", "Microsoft.WebApplication.targets"),
+        r"C:\BuildTools\MSBuild\Microsoft\VisualStudio\v17.0\WebApplications\Microsoft.WebApplication.targets",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\v17.0\WebApplications\Microsoft.WebApplication.targets",
+        r"C:\Program Files\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\v17.0\WebApplications\Microsoft.WebApplication.targets"
+    ]
+    for p in candidates:
+        if p and exists(p):
+            return True
+    return False
+
+def parse_dotnet_error(stderr, csproj_path):
+    s = (stderr or "").lower()
+
+    if "no assets file was found" in s:
+        return ("WARNING",
+                f"{csproj_path}: No assets file. Run 'dotnet restore' (o verifica feeds/credenciales).",
+                True)
+
+    if "uses package.config" in s or "packages.config" in s:
+        return ("WARNING",
+                f"{csproj_path}: Proyecto con packages.config (no soportado por 'dotnet list'). Se omite.",
+                True)
+
+    if "microsoft.webapplication.targets" in s:
+        hint = "Instala Visual Studio Build Tools 2022 (Web Build Tools) en un agente Windows." if os.name == "nt" else "Ejecuta en agente Windows con VS Build Tools (Web)."
+        return ("WARNING",
+                f"{csproj_path}: Proyecto ASP.NET clásico sin Web targets. {hint} Se omite.",
+                True)
+
+    if "unrecognized option '--vulnerable'" in s or "unrecognized option '--deprecated'" in s or "unrecognized option '--outdated'" in s:
+        return ("ERROR",
+                f"{csproj_path}: El SDK de .NET es antiguo. Necesitas .NET SDK 5+ para '--vulnerable/--deprecated/--outdated'.",
+                False)
+
+    if "unable to load the service index for source" in s or "nu1301" in s or "nu1100" in s:
+        return ("ERROR",
+                f"{csproj_path}: Problema con las fuentes de NuGet (feed/credenciales/red). Revisa autenticación y accesibilidad de los feeds.",
+                False)
+
+    return ("ERROR", f"{csproj_path}: dotnet list package falló. Revisa stderr arriba.", False)
 
 def run_dotnet_restore(target_path):
     cmd = ["dotnet", "restore", target_path]
@@ -177,13 +240,11 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
             log(result.stdout)
 
         if result.returncode != 0:
-            log_summary(
-                f"ERROR: Could not check packages for {csproj_path}. "
-                f"dotnet command failed with code {result.returncode}."
-            )
+            sev, msg, skip_ok = parse_dotnet_error(result.stderr, csproj_path)
+            log_summary(f"{sev}: {msg}")
             if result.stderr:
                 log(f"[dotnet stderr]\n{result.stderr}")
-            return False
+            return skip_ok
 
         output_lines = result.stdout.splitlines()
         blocked_found = False
@@ -210,7 +271,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                 if not any(x in tag_pull_request for x in ("ephemeral", "mocked", "ephemeral_mocked")):
                     log_summary(f"ERROR: Found '-beta' package '{package_name}' do not allow it.")
                     blocked_found = True
-                    continue
                 continue
 
             matched_block_rule = None
@@ -220,7 +280,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     break
 
             if matched_block_rule:
-
                 if matched_block_rule.get("min_version"):
                     if version_lt(installed_version, matched_block_rule["min_version"]):
                         is_whitelisted = (
@@ -251,8 +310,6 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
                     blocked_found = True
                     continue
 
-            continue
-
         return not blocked_found
     except Exception as e:
         log_summary(f"Exception running dotnet command: {e}")
@@ -266,6 +323,16 @@ def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_n
 
     error_count = 0
     for csproj in csproj_files:
+        if uses_packages_config(csproj):
+            log_summary(f"WARNING: Skipping packages.config project (not supported by 'dotnet list'): {csproj}")
+            continue
+
+        if is_classic_web_app(csproj):
+            if os.name != "nt" or not web_targets_present():
+                hint = "Ejecuta en Windows e instala VS Build Tools (Web)" if os.name != "nt" else "Instala VS Build Tools 2022 (Web)"
+                log_summary(f"WARNING: Skipping classic ASP.NET project (missing Web targets). {hint}: {csproj}")
+                continue
+
         ok = run_dotnet_package_check(
             csproj,
             check_type,
@@ -331,7 +398,6 @@ def main():
 
     log("\nSUMMARY REPORT")
     log("-" * 60)
-
     if summary_lines:
         for line in summary_lines:
             log(line)
