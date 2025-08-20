@@ -247,7 +247,6 @@ def check_packages(check_type, blocked_packages, whitelist_projects, whitelist_n
             blocked_packages,
             whitelist_projects,
             whitelist_nugets,
-            ,
             tag_pull_request
         )
         if not ok:
