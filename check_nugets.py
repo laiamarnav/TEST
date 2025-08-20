@@ -138,10 +138,6 @@ def resolve_whitelist_for_project(csproj_path, whitelist_projects):
     return merged
 
 def run_dotnet_restore(target_path):
-    """
-    Ejecuta 'dotnet restore' sobre una solución (.sln) o proyecto (.csproj),
-    incluyendo las fuentes definidas en NUGET_SOURCES.
-    """
     cmd = ["dotnet", "restore", target_path]
     for source in NUGET_SOURCES:
         cmd.extend(["--source", source])
