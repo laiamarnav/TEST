@@ -1,8 +1,8 @@
 {
   "blocked_packages": [
     {
-      "name": "Azure.Identity",
-      "block_on": ["all"]
+      "name": "Serilog*",
+      "block_on": ["OUTDATED"]
     }
   ]
 }
