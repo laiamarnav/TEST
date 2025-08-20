@@ -117,7 +117,7 @@ def version_lt(v1, v2):
         b = _version_nums(v2)
         L = max(len(a), len(b))
         if len(a) < L: a += [0] * (L - len(a))
-        if len(b) < L: b += [0] * (L - len(a))
+        if len(b) < L: b += [0] * (L - len(b))
         return a < b
     except Exception:
         return False
@@ -137,26 +137,6 @@ def resolve_whitelist_for_project(csproj_path, whitelist_projects):
 
     return merged
 
-def run_dotnet_restore(target_path):
-    cmd = ["dotnet", "restore", target_path]
-    for source in NUGET_SOURCES:
-        cmd.extend(["--source", source])
-
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
-        log(f"\n[RESTORE] {os.path.abspath(target_path)}")
-        if r.stdout:
-            log(r.stdout)
-        if r.returncode != 0:
-            log_summary(f"ERROR: dotnet restore failed for {target_path} (code {r.returncode}).")
-            if r.stderr:
-                log(f"[dotnet stderr]\n{r.stderr}")
-            return False
-        return True
-    except Exception as e:
-        log_summary(f"Exception running dotnet restore: {e}")
-        return False
-
 def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelist_projects, whitelist_nugets, tag_pull_request):
     cmd = [
         "dotnet", "list", csproj_path, "package",
@@ -173,8 +153,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
         log(f"\n [{check_type.upper()} PACKAGES] ")
         log("-" * 60)
         log(f"\nChecking packages for {os.path.abspath(csproj_path)}")
-        if result.stdout:
-            log(result.stdout)
+        log(result.stdout)
 
         if result.returncode != 0:
             log_summary(
@@ -223,6 +202,7 @@ def run_dotnet_package_check(csproj_path, check_type, blocked_packages, whitelis
 
                 if matched_block_rule.get("min_version"):
                     if version_lt(installed_version, matched_block_rule["min_version"]):
+                        # ¿Whitelist?
                         is_whitelisted = (
                             any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_for_project) or
                             any(fnmatch.fnmatch(package_name, wl) for wl in whitelist_nugets) or
@@ -302,25 +282,6 @@ def main():
 
     blocked_packages = load_blocked_packages(blocked_packages_json)
     whitelist_projects, whitelist_nugets = load_whitelist_data(whitelist_projects_json)
-
-    slns = glob.glob("*.sln")
-    restored_ok = True
-    if slns:
-        for sln in slns:
-            if not run_dotnet_restore(sln):
-                restored_ok = False
-    else:
-        csprojs = find_csproj_files()
-        if not csprojs:
-            log_summary("No .csproj files found to restore. Exiting...")
-            sys.exit(0)
-        for csproj in csprojs:
-            if not run_dotnet_restore(csproj):
-                restored_ok = False
-
-    if not restored_ok:
-        log_summary("ERROR: Restore failed. Aborting package checks.")
-        sys.exit(1)
 
     open(LOG_FILE, "w", encoding="utf-8").close()
     log(f"Logging output to: {LOG_FILE}")
