@@ -1,8 +1,10 @@
 import os, re, glob, fnmatch
 from os.path import exists, dirname, join
 
+
 def find_csproj_files():
     return glob.glob("**/*.csproj", recursive=True)
+
 
 def _version_nums(v: str):
     main = v.split('-', 1)[0] if v else ""
@@ -15,6 +17,7 @@ def _version_nums(v: str):
             nums.append(0)
     return nums
 
+
 def version_lt(v1: str, v2: str) -> bool:
     try:
         a = _version_nums(v1)
@@ -26,6 +29,7 @@ def version_lt(v1: str, v2: str) -> bool:
     except Exception:
         return False
 
+
 def is_classic_web_app(csproj_path: str) -> bool:
     try:
         with open(csproj_path, encoding="utf-8", errors="ignore") as f:
@@ -33,6 +37,7 @@ def is_classic_web_app(csproj_path: str) -> bool:
         return "microsoft.webapplication.targets" in text
     except Exception:
         return False
+
 
 def uses_packages_config(csproj_path: str) -> bool:
     if exists(join(dirname(csproj_path), "packages.config")):
@@ -43,6 +48,7 @@ def uses_packages_config(csproj_path: str) -> bool:
         return ("<packagereference" not in txt) and ("\\packages\\" in txt or "/packages/" in txt or "<hintpath>" in txt)
     except Exception:
         return False
+
 
 def resolve_whitelist_for_project(csproj_path, whitelist_projects):
     project_name = os.path.basename(csproj_path)
@@ -58,3 +64,35 @@ def resolve_whitelist_for_project(csproj_path, whitelist_projects):
             merged.extend(allowed)
 
     return merged
+
+
+def parse_dotnet_error(stderr: str, csproj_path: str):
+    s = (stderr or "").lower()
+
+    if "no assets file was found" in s:
+        return ("WARNING",
+                f"{csproj_path}: No assets file. Run 'dotnet restore' (o verifica feeds/credenciales).",
+                True)
+
+    if "package.config" in s:
+        return ("WARNING",
+                f"{csproj_path}: Proyecto con packages.config (no soportado por 'dotnet list'). Se omite.",
+                True)
+
+    if "microsoft.webapplication.targets" in s:
+        hint = "Instala Visual Studio Build Tools 2022 (Web Build Tools) en un agente Windows." if os.name == "nt" else "Ejecuta en agente Windows con VS Build Tools (Web)."
+        return ("WARNING",
+                f"{csproj_path}: Proyecto ASP.NET clásico sin Web targets. {hint} Se omite.",
+                True)
+
+    if "unrecognized option '--vulnerable'" in s or "unrecognized option '--deprecated'" in s or "unrecognized option '--outdated'" in s:
+        return ("ERROR",
+                f"{csproj_path}: El SDK de .NET es antiguo. Necesitas .NET SDK 5+ para '--vulnerable/--deprecated/--outdated'.",
+                False)
+
+    if "unable to load the service index for source" in s or "nu1301" in s or "nu1100" in s:
+        return ("ERROR",
+                f"{csproj_path}: Problema con las fuentes de NuGet (feed/credenciales/red). Revisa autenticación y accesibilidad de los feeds.",
+                False)
+
+    return ("ERROR", f"{csproj_path}: dotnet list package falló. Revisa stderr arriba.", False)
