@@ -177,7 +177,7 @@ def parse_dotnet_error(stderr, csproj_path):
                 f"{csproj_path}: No assets file. Run 'dotnet restore' (o verifica feeds/credenciales).",
                 True)
 
-    if "uses package.config" in s or "packages.config" in s:
+    if "package.config" in s:
         return ("WARNING",
                 f"{csproj_path}: Proyecto con packages.config (no soportado por 'dotnet list'). Se omite.",
                 True)
